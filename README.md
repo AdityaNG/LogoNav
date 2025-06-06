@@ -2,6 +2,9 @@
 
 [![codecov](https://codecov.io/gh/AdityaNG/LogoNav/branch/main/graph/badge.svg?token=LogoNav_token_here)](https://codecov.io/gh/AdityaNG/LogoNav)
 [![CI](https://github.com/AdityaNG/LogoNav/actions/workflows/main.yml/badge.svg)](https://github.com/AdityaNG/LogoNav/actions/workflows/main.yml)
+[![GitHub License](https://img.shields.io/github/license/AdityaNG/LogoNav)](https://github.com/AdityaNG/LogoNav/blob/main/LICENSE)
+[![PyPI - Version](https://img.shields.io/pypi/v/LogoNav)](https://pypi.org/project/LogoNav/)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/LogoNav)
 
 LogoNav: Long-range Goal Pose conditioned Navigation policy
 
