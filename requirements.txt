@@ -7,3 +7,4 @@ requests>=2.25.0
 gdown>=4.4.0
 typing>=3.7.4
 pathlib>=1.0.1
+opencv-python

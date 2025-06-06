@@ -19,7 +19,7 @@ echo "Renaming project..."
 original_author="AdityaNG"
 original_name="logonav"
 original_urlname="LogoNav"
-original_description="Awesome logonav created by AdityaNG"
+original_description="LogoNav: Long-range Goal Pose conditioned Navigation policy"
 # for filename in $(find . -name "*.*") 
 for filename in $(git ls-files) 
 do

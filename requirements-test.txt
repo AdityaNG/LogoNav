@@ -11,4 +11,4 @@ mkdocs
 lark
 types-requests
 requests-mock
-types-PyYAMLs
+types-PyYAML

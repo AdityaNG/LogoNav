@@ -32,7 +32,7 @@ def read_requirements(path):
 setup(
     name="logonav",
     version=read("logonav", "VERSION"),
-    description="Awesome logonav created by AdityaNG",
+    description="LogoNav: Long-range Goal Pose conditioned Navigation policy",
     url="https://github.com/AdityaNG/LogoNav/",
     long_description=read("README.md"),
     long_description_content_type="text/markdown",
