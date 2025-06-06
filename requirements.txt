@@ -1,5 +1,9 @@
-# This template is a low-dependency template. 
-# By default there is no requirements added here.
-# Add the requirements you need to this file.
-# or run `make init` to create this file automatically based on the template.
-# You can also run `make switch-to-poetry` to use the poetry package manager.
+torch>=1.7.0
+torchvision>=0.8.0
+numpy>=1.19.0
+Pillow>=8.0.0
+efficientnet-pytorch>=0.7.0
+requests>=2.25.0
+gdown>=4.4.0
+typing>=3.7.4
+pathlib>=1.0.1
