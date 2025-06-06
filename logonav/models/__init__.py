@@ -1,0 +1,1 @@
+"""LogoNav model implementations."""
