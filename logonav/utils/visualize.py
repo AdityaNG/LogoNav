@@ -5,15 +5,13 @@ Inspiration
 trajectory plotting utils: https://github.com/AdityaNG/general-navigation/blob/306fd4eed07a54b0fbc5b6df0ecd1dc78f8ba497/general_navigation/models/model_utils.py  # noqa
 """
 
-import hashlib
-import os
-import pickle
-from typing import Dict, Tuple, Optional
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 
-################################################################################
+
+###############################################################################
 # Camera Utils
 def estimate_intrinsics(
     fov_x: float,  # degrees
@@ -313,7 +311,9 @@ def create_transform(
 
     return transformation_matrix
 
-################################################################################
+
+###############################################################################
+
 
 def interpolate_trajectory_3D(
     trajectory: np.ndarray,
@@ -349,6 +349,7 @@ def interpolate_trajectory_3D(
     interpolated_trajectory[-1] = trajectory[-1]
 
     return interpolated_trajectory
+
 
 def plot_points_on_image(
     frame_img: np.ndarray,

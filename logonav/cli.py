@@ -6,10 +6,15 @@ import click
 import cv2
 import numpy as np
 import torch
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from logonav.inference import load_logonav_model, run_inference
 from logonav.utils.transforms import to_numpy, transform_images_for_model
+from logonav.utils.visualize import (
+    create_transform,
+    estimate_intrinsics,
+    plot_3D_trajectory,
+)
 
 
 @click.group()
@@ -124,8 +129,35 @@ def demo(model_path, device):
     default=0.0,
     help="Goal orientation in radians.",
 )
+@click.option(
+    "--camera-fov-x",
+    type=float,
+    default=149.0,
+    help="Camera horizontal field of view in degrees.",
+)
+@click.option(
+    "--camera-fov-y",
+    type=float,
+    default=90.0,
+    help="Camera vertical field of view in degrees.",
+)
+@click.option(
+    "--camera-height",
+    type=float,
+    default=0.56,
+    help="Camera height from ground in meters.",
+)
 def process_video(
-    video_path, model_path, device, output_path, goal_x, goal_y, goal_theta
+    video_path,
+    model_path,
+    device,
+    output_path,
+    goal_x,
+    goal_y,
+    goal_theta,
+    camera_fov_x,
+    camera_fov_y,
+    camera_height,
 ):
     """Process a video with the LogoNav model and visualize waypoints."""
     device = torch.device(device)
@@ -147,7 +179,7 @@ def process_video(
     # Goal pose [dx, dy, cos(theta), sin(theta)]
     goal_pose = torch.tensor(
         [[goal_x, goal_y, np.cos(goal_theta), np.sin(goal_theta)]]
-    ).to(device)
+    ).to(device, dtype=torch.float32)
 
     # Open the video file
     cap = cv2.VideoCapture(video_path)
@@ -159,6 +191,22 @@ def process_video(
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    # Create camera matrices for 3D visualization
+    intrinsic_matrix = estimate_intrinsics(
+        fov_x=camera_fov_x,
+        fov_y=camera_fov_y,
+        height=height,
+        width=width,
+    )
+    extrinsic_matrix = create_transform(
+        x=0,
+        y=0,
+        z=0,
+        roll=0,
+        pitch=0,
+        yaw=0,
+    )
 
     # Create a video writer for the output
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -195,8 +243,17 @@ def process_video(
             waypoints = run_inference(model, obs_tensor, goal_pose)
             waypoints_np = to_numpy(waypoints)[0]
 
-            # Visualize waypoints on the frame
-            vis_frame = visualize_waypoints(frame, waypoints_np, width, height)
+            # Visualize waypoints on the frame using new visualization tools
+            vis_frame = visualize_waypoints_3d(
+                frame,
+                waypoints_np,
+                intrinsic_matrix,
+                extrinsic_matrix,
+                camera_height,
+            )
+
+            cv2.imshow("vis_frame", vis_frame)
+            cv2.waitKey(1)
 
             # Write the frame to the output video
             out.write(vis_frame)
@@ -211,63 +268,51 @@ def process_video(
     print(f"Output video saved to {output_path}")
 
 
-def visualize_waypoints(frame, waypoints, width, height):
+def visualize_waypoints_3d(
+    frame, waypoints, intrinsic_matrix, extrinsic_matrix, camera_height
+):
     """
-    Visualize predicted waypoints on the frame
+    Visualize predicted waypoints using 3D projection tools.
 
     Args:
         frame: OpenCV frame
-        waypoints: NumPy array of waypoints [N, 4]
-        width: Frame width
-        height: Frame height
+        waypoints: NumPy array of waypoints [N, 4] containing
+            [x, y, cos(theta), sin(theta)]
+        intrinsic_matrix: Camera intrinsic matrix
+        extrinsic_matrix: Camera extrinsic matrix
+        camera_height: Height of camera from ground in meters
 
     Returns:
         OpenCV frame with visualized waypoints
     """
-    # Convert to PIL Image for easier drawing
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    pil_frame = Image.fromarray(frame_rgb)
-    draw = ImageDraw.Draw(pil_frame)
+    # Convert waypoints to 3D trajectory
+    # Assume waypoint spacing of 0.25m (typical for LogoNav)
+    metric_waypoint_spacing = 0.25
 
-    # Scale factor from model coordinates to image coordinates
-    # Assuming model coordinates are in meters and centered at the robot
-    scale = min(width, height) / 10.0  # 10 meters covers the full frame
+    trajectory_3D = [[0, camera_height, 0]]  # Start at camera position
 
-    # Center point (robot position)
-    center_x = width // 2
-    center_y = height // 2
+    for waypoint in waypoints:
+        # Scale waypoints from model output to metric coordinates
+        wp_x = waypoint[0] * metric_waypoint_spacing
+        wp_y = waypoint[1] * metric_waypoint_spacing
 
-    # Draw the waypoints
-    for i, waypoint in enumerate(waypoints):
-        # Extract position
-        x, y = waypoint[0], waypoint[1]
+        # Add to trajectory (swap x/y to match coordinate system)
+        trajectory_3D.append([wp_y, camera_height, wp_x])
 
-        # Convert to image coordinates
-        img_x = int(center_x + x * scale)
-        img_y = int(center_y - y * scale)  # Negate y because image y is down
+    trajectory_3D = np.array(trajectory_3D)
 
-        # Draw a point for each waypoint
-        radius = 5
-        color = (255, 0, 0) if i == 0 else (0, 255, 0)
-        draw.ellipse(
-            (img_x - radius, img_y - radius, img_x + radius, img_y + radius),
-            fill=color,
-        )
+    # Use the 3D visualization tool
+    vis_frame = plot_3D_trajectory(
+        frame_img=frame,
+        trajectory_3D=trajectory_3D,
+        intrinsic_matrix=intrinsic_matrix,
+        extrinsic_matrix=extrinsic_matrix,
+        interpolation_samples=5,
+        draw_line=True,
+        color=(0, 255, 0),  # Green trajectory
+    )
 
-        # Draw a line connecting waypoints
-        if i > 0:
-            prev_x, prev_y = waypoints[i - 1][0], waypoints[i - 1][1]
-            prev_img_x = int(center_x + prev_x * scale)
-            prev_img_y = int(center_y - prev_y * scale)
-            draw.line(
-                (prev_img_x, prev_img_y, img_x, img_y),
-                fill=(0, 255, 255),
-                width=2,
-            )
-
-    # Convert back to OpenCV format
-    frame_with_waypoints = cv2.cvtColor(np.array(pil_frame), cv2.COLOR_RGB2BGR)
-    return frame_with_waypoints
+    return vis_frame
 
 
 def main():  # pragma: no cover
