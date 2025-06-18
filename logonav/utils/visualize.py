@@ -487,3 +487,170 @@ def plot_3D_trajectory(
         draw_line=draw_line,
         thickness=thickness,
     )
+
+
+def backproject_pixel_to_bev(
+    px: int,
+    py: int,
+    intrinsic_matrix: np.ndarray,
+    extrinsic_matrix: np.ndarray,
+    camera_height: float,
+    default_point: Tuple[float, float] = (0, 0),
+) -> Tuple[float, float]:
+    """
+    Backproject pixel coordinates to BEV coordinates using flat
+    world assumption.
+
+    COORDINATE FRAMES (CRITICAL UNDERSTANDING):
+
+    1. IMAGE COORDINATES:
+       - u (px): Horizontal, 0 at left edge, increases rightward
+       - v (py): Vertical, 0 at top edge, increases downward
+
+    2. CAMERA COORDINATES (OpenCV/Computer Vision standard):
+       - X: Right (same as +u direction)
+       - Y: DOWN (same as +v direction) - KEY POINT!
+       - Z: Forward into scene (depth)
+       - Origin: Camera optical center
+
+    3. WORLD COORDINATES (with identity extrinsic):
+       - Same as camera coordinates
+       - Camera at (0, 0, 0)
+       - Ground plane at Y = +camera_height (below camera since +Y is down)
+
+    4. BEV COORDINATES (model expectation):
+       - x: Forward relative to camera (+Z in world)
+       - y: Right relative to camera (+X in world)
+
+    PHYSICS CHECK:
+    - Ray must point downward (positive Y direction) to hit ground
+    - If ray points upward (negative Y), it hits sky, not ground
+    - This will cause t < 0 and assertion failure
+
+    Args:
+        px, py: Pixel coordinates in image
+        intrinsic_matrix: Camera intrinsic matrix (3x3)
+        extrinsic_matrix: Camera extrinsic matrix (4x4)
+        camera_height: Height of camera from ground in meters
+
+    Returns:
+        tuple: (goal_x, goal_y) in BEV coordinates
+    """
+    # Convert pixel coordinates to normalized camera coordinates
+    fx = intrinsic_matrix[0, 0]
+    fy = intrinsic_matrix[1, 1]
+    cx = intrinsic_matrix[0, 2]
+    cy = intrinsic_matrix[1, 2]
+
+    # Normalized camera coordinates
+    x_norm = (px - cx) / fx
+    y_norm = (py - cy) / fy
+
+    # Create ray direction in camera coordinates (z=1 for unit depth)
+    ray_dir_cam = np.array([x_norm, y_norm, 1.0])
+
+    # Camera position in world coordinates (inverse of extrinsic transform)
+    extrinsic_inv = np.linalg.inv(extrinsic_matrix)
+    camera_pos_world = extrinsic_inv[:3, 3]
+
+    # Transform ray direction to world coordinates
+    rotation_inv = extrinsic_inv[:3, :3]
+    ray_dir_world = rotation_inv @ ray_dir_cam
+
+    # Ground plane: y = +camera_height (below camera, since +Y is DOWN)
+    ground_y = +camera_height
+
+    # Physics check: Ray must point downward to hit ground
+    if ray_dir_world[1] <= 0:
+        print(f"ERROR: Ray points upward (Y={ray_dir_world[1]:.6f})")
+        print("This means you clicked above the horizon line!")
+        print("Click below the horizon to select ground points.")
+
+    if abs(ray_dir_world[1]) < 1e-6:
+        return default_point
+
+    t = (ground_y - camera_pos_world[1]) / ray_dir_world[1]
+
+    if t <= 0:
+        return default_point
+
+    # Calculate intersection point
+    intersection_world = camera_pos_world + t * ray_dir_world
+
+    # Convert world coordinates to BEV coordinates
+    # BEV: x=forward, y=right relative to camera
+    bev_x = intersection_world[2]  # Z in world = X in BEV (forward)
+    bev_y = intersection_world[0]  # X in world = Y in BEV (right)
+
+    return bev_x, bev_y
+
+
+def draw_horizon_line(
+    frame_img: np.ndarray,
+    intrinsic_matrix: np.ndarray,
+    extrinsic_matrix: np.ndarray,
+    camera_height: float,
+    color: Tuple[int, int, int] = (255, 255, 0),  # Yellow
+    thickness: int = 2,
+) -> np.ndarray:
+    """
+    Draw the horizon line on the image.
+
+    The horizon line is where the ground plane at y=0 (same level as camera)
+    would project onto the image. Points above this line project to the sky,
+    points below project to the ground.
+
+    Args:
+        frame_img: Image to draw on
+        intrinsic_matrix: Camera intrinsic matrix (3x3)
+        extrinsic_matrix: Camera extrinsic matrix (4x4)
+        camera_height: Height of camera from ground
+        color: RGB color for the horizon line
+        thickness: Line thickness
+
+    Returns:
+        Image with horizon line drawn
+    """
+    result_img = frame_img.copy()
+    h, w = result_img.shape[:2]
+
+    # Create points along the horizon (y=0 plane, same level as camera)
+    # Sample points from left to right across the image width
+    horizon_world_points = []
+
+    # Create a line of 3D points at the horizon level
+    # We'll use a range of z values (depths) and x values (left-right)
+    for x in np.linspace(-10, 10, 100):  # 20m wide sampling
+        for z in [1, 5, 10, 20, 50]:  # Various depths
+            # Horizon plane is at y=0 (camera level)
+            horizon_world_points.append([x, 0, z])
+
+    horizon_world_points = np.array(horizon_world_points)
+
+    # Project to image coordinates
+    horizon_2d = project_world_to_image(
+        horizon_world_points, intrinsic_matrix, extrinsic_matrix
+    )
+
+    # Filter points that are within image bounds
+    valid_points = []
+    for px, py in horizon_2d:
+        if 0 <= px < w and 0 <= py < h:
+            valid_points.append([px, py])
+
+    if len(valid_points) < 2:
+        return result_img  # Not enough points to draw a line
+
+    valid_points = np.array(valid_points)
+
+    # Find the approximate horizon line by fitting a line to valid points
+    # Sort by x coordinate
+    valid_points = valid_points[np.argsort(valid_points[:, 0])]
+
+    # Draw line segments connecting the points
+    for i in range(len(valid_points) - 1):
+        pt1 = (int(valid_points[i, 0]), int(valid_points[i, 1]))
+        pt2 = (int(valid_points[i + 1, 0]), int(valid_points[i + 1, 1]))
+        cv2.line(result_img, pt1, pt2, color, thickness)
+
+    return result_img
